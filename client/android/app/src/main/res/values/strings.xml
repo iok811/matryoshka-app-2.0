@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Матрёшка Мариса</string>
+    <string name="title_activity_main">Матрёшка Мариса</string>
+    <string name="package_name">com.matryoshka.marisa</string>
+    <string name="custom_url_scheme">com.matryoshka.marisa</string>
+</resources>

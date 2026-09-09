@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Privacy Manifest richiesto da Apple dal 2024 (Guideline 5.1.1 e requisiti App Store
+  Connect): senza questo file, se l'app usa una qualsiasi "API richiedente motivazione"
+  (Required Reason API), la sottomissione viene rifiutata automaticamente in fase di
+  validazione, ancora prima della revisione umana.
+
+  Le due categorie dichiarate qui corrispondono ai plugin Capacitor per cui la
+  documentazione ufficiale conferma esplicitamente la necessità di una dichiarazione:
+  - @capacitor/filesystem  → accede a data di creazione/modifica dei file dell'app
+    stessa (per salvare/leggere il progresso in locale) → File Timestamp APIs.
+  - @capacitor/local-notifications e il nucleo di Capacitor stesso → usano
+    UserDefaults internamente per configurazioni e stato dell'app → User Defaults API.
+
+  ATTENZIONE — package.json elenca anche @capacitor/haptics, @capacitor/network
+  e (da questa modifica) @capacitor/share, tutti realmente usati nel codice
+  sorgente (client/src/App.jsx), ma NESSUNO dei tre è coperto qui sotto: la
+  documentazione ufficiale reperibile non conferma con certezza se richiedano una
+  propria dichiarazione (Network usa NWPathMonitor su iOS, che non risulta nella
+  lista ufficiale delle categorie soggette a Required Reason API; Share usa solo
+  UIActivityViewController, anch'esso non nella lista — ma questo andrebbe
+  riverificato con l'estensione VS Code di Ionic o Xcode stesso prima della
+  sottomissione, non assunto per certo qui).
+
+  Se in futuro vengono aggiunti altri plugin nativi (Capacitor o di terze parti),
+  controllare se introducono l'uso di altre Required Reason API (es. system boot time,
+  disk space) e aggiungere qui la relativa dichiarazione — altrimenti la build verrà
+  respinta da App Store Connect.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

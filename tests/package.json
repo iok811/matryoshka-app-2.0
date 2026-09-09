@@ -1,0 +1,19 @@
+{
+  "name": "matryoshka-tests",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Suite di verifica per Матрёшка Мариса — separata dalle dipendenze del client, non necessaria in produzione.",
+  "scripts": {
+    "test": "npm run test:data && npm run test:ui",
+    "test:data": "node data-integrity-test.mjs",
+    "test:ui": "node ui-smoke-test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.383.0",
+    "esbuild": "^0.21.0"
+  }
+}

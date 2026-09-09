@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+client/ios/App/Pods/
+client/ios/App/App.xcworkspace/
+client/android/.gradle/
+client/android/build/
+client/android/app/build/
+client/android/.idea/
