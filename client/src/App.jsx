@@ -257,7 +257,7 @@ const homeWatermarkStyle = {
 // smetterebbero di funzionare per chiunque, sempre, indipendentemente dalla
 // qualità della connessione reale. Prima di pubblicare, sostituire con l'URL
 // completo e pubblico del backend (es. "https://tuo-backend.onrender.com").
-const API_BASE = "";
+const API_BASE = "https://matryoshka-app.onrender.com";
 
 // L'app riconosce da sola l'ambiente in cui gira: se è aperta come artifact
 // dentro Claude.ai (dove esiste window.storage), usa quel meccanismo; se gira
@@ -655,29 +655,32 @@ async function restorePurchases() {
 const ELEVENLABS_DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"; // "Rachel", multilingual, supports Russian
 
 async function speakPremium(text, apiKey, voiceId) {
+  // ElevenLabs non permette chiamate dirette dal browser: verificato con la console
+  // sviluppatore che restituisce "blocked by CORS policy — no
+  // 'Access-Control-Allow-Origin' header", indipendentemente da chiave o voce usate.
+  // Prima questa funzione chiamava api.elevenlabs.io direttamente e falliva sempre
+  // con "Failed to fetch" — passa quindi dal backend (chiamata server-a-server, dove
+  // CORS non si applica). La chiave transita per il server ma non viene mai salvata
+  // né loggata lì, solo inoltrata a ElevenLabs.
   let res;
   try {
-    res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId || ELEVENLABS_DEFAULT_VOICE}`, {
+    res = await fetch(`${API_BASE}/api/tts/premium`, {
       method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-        "Content-Type": "application/json",
-        Accept: "audio/mpeg",
-      },
-      body: JSON.stringify({
-        text,
-        model_id: "eleven_multilingual_v2",
-        voice_settings: { stability: 0.45, similarity_boost: 0.85, style: 0.3, use_speaker_boost: true },
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, apiKey, voiceId }),
     });
   } catch {
-    // fetch stesso può fallire (rete assente) PRIMA di arrivare a "res.ok" — in quel
-    // caso lancerebbe un errore tecnico del browser (es. "Failed to fetch", in
-    // inglese) invece del messaggio chiaro gestito sotto per le risposte HTTP.
+    // fetch stessa può fallire (rete assente, backend irraggiungibile) PRIMA di
+    // arrivare a "res.ok" — in quel caso lancerebbe un errore tecnico del browser
+    // (es. "Failed to fetch", in inglese) invece del messaggio chiaro gestito sotto.
     throw new Error("Audio non disponibile. Verifica la connessione.");
   }
   if (!res.ok) {
-    const msg = res.status === 401 ? "Chiave API non valida." : `Errore audio (${res.status}).`;
+    let msg = `Errore audio (${res.status}).`;
+    try {
+      const body = await res.json();
+      if (body?.error?.message) msg = body.error.message;
+    } catch {}
     throw new Error(msg);
   }
   const blob = await res.blob();
@@ -1845,7 +1848,6 @@ export default function App() {
 
   const [ttsSettings, setTtsSettings] = useState({ voiceURI: null, rate: 0.92 });
   const [voiceOptions, setVoiceOptions] = useState([]);
-  const [showVoicePanel, setShowVoicePanel] = useState(false);
   // ---------- Scala del testo, regolabile dall'utente ----------
   // Un solo numero (textScale) applicato via CSS "zoom" sul contenitore radice
   // dell'app: scala in blocco TUTTO il testo (e lo spazio attorno) in ogni
@@ -2456,7 +2458,7 @@ IMPORTANTE — accento tonico: U+0301 subito dopo la vocale accentata in ogni ca
 ${JSON_FORMAT_INSTRUCTIONS}
 
 Struttura richiesta:
-{"word":"aggettivo al maschile con accento","meaning_it":"traduzione italiana","comparative":"forma comparativa con accento","superlative":"forma superlativa con accento","irregular":true o false,"example_ru":"frase breve col comparativo, con accenti","example_it":"traduzione","note_it":"breve nota se irregolare, altrimenti stringa vuota"}`;
+{"word":"aggettivo al maschile con accento","meaning_it":"traduzione italiana","comparative":"forma comparativa con accento","superlative":"forma superlativa con accento","irregular":true o false,"example_ru":"frase breve col comparativo, con accenti","example_it":"traduzione","example_superlative_ru":"frase breve DIVERSA dalla prima, che usa il superlativo (non il comparativo), con accenti","example_superlative_it":"traduzione della frase col superlativo","note_it":"breve nota se irregolare, altrimenti stringa vuota"}`;
 
       const parsed = await callClaudeJSON(prompt);
       if (!parsed.word || !parsed.comparative || !parsed.superlative) throw new Error("Struttura incompleta.");
@@ -3645,7 +3647,7 @@ Struttura richiesta:
   }
 
   const masteredCount = Object.values(vocabBox).filter((b) => b >= 5).length;
-  const anySectionActive = view !== "home" || showVoicePanel || showTextSizePanel || showDevPanel;
+  const anySectionActive = view !== "home" || showTextSizePanel || showDevPanel;
   function navBtnStyle(borderColor, isActive) {
     return {
       background: isActive ? `${borderColor}33` : "none",
@@ -4867,7 +4869,7 @@ Struttura richiesta:
           const WORD_TARGET = 15;
           const CONV_TARGET = 5;
           return (
-            <div style={{ marginTop: 16, width: "100%", maxWidth: 340 }}>
+            <div style={{ width: "100%", maxWidth: 340, margin: "16px auto 0" }}>
               <div style={{ fontSize: TEXT_SIZES.body, opacity: 0.6, marginBottom: 6, textAlign: "left" }}>
                 🎯 Questa settimana
               </div>
@@ -4891,7 +4893,7 @@ Struttura richiesta:
         })()}
 
         {inProgressPlans.length > 0 && (
-          <div style={{ marginTop: 16, width: "100%", maxWidth: 340 }}>
+          <div style={{ width: "100%", maxWidth: 340, margin: "16px auto 0" }}>
             <div style={{ fontSize: TEXT_SIZES.body, opacity: 0.6, marginBottom: 6, textAlign: "left" }}>
               ▶️ In svolgimento
             </div>
@@ -4944,13 +4946,13 @@ Struttura richiesta:
           }}
         >
           <button
-            onClick={() => setShowVoicePanel((s) => !s)}
+            onClick={() => { playNavigationSound(); setView(view === "voce" ? "home" : "voce"); }}
             style={{
               display: "flex",
               alignItems: "center",
               gap: 5,
-              background: showVoicePanel ? "rgba(217,164,65,0.2)" : "none",
-              border: showVoicePanel ? "1px solid #D9A441" : "1px solid rgba(240,234,216,0.2)",
+              background: view === "voce" ? "rgba(217,164,65,0.2)" : "none",
+              border: view === "voce" ? "1px solid #D9A441" : "1px solid rgba(240,234,216,0.2)",
               borderRadius: 16,
               padding: "3px 11px",
               color: "#D9A441",
@@ -5786,270 +5788,12 @@ Struttura richiesta:
           </div>
         )}
 
-        {!premium.enabled && !showVoicePanel && !showTextSizePanel && !showDevPanel && activeSector === "pratica" && !PRATICA_SUBVIEWS.includes(view) && (
+        {!premium.enabled && view !== "voce" && !showTextSizePanel && !showDevPanel && activeSector === "pratica" && !PRATICA_SUBVIEWS.includes(view) && (
           <p style={{ fontSize: TEXT_SIZES.body, opacity: 0.55, marginTop: 8 }}>
             👆 Tocca "Voce" in alto per una pronuncia più naturale (voce premium disponibile)
           </p>
         )}
 
-        {showVoicePanel && (
-          <div
-            style={{
-              maxWidth: 340,
-              margin: "12px auto 0",
-              background: "#232E3D",
-              border: "1px solid rgba(240,234,216,0.15)",
-              borderRadius: 10,
-              padding: 14,
-              textAlign: "left",
-              fontSize: TEXT_SIZES.body,
-            }}
-          >
-            {!TTS_SUPPORTED ? (
-              <div style={{ opacity: 0.6 }}>Il tuo browser non supporta la sintesi vocale.</div>
-            ) : (
-              <>
-                {voiceOptions.length > 0 ? (
-                  <>
-                    <div style={{ opacity: 0.6, marginBottom: 4 }}>Voce russa</div>
-                    <select
-                      value={ttsSettings.voiceURI || ""}
-                      onChange={(e) => updateTtsSettings({ voiceURI: e.target.value || null })}
-                      style={{
-                        width: "100%",
-                        background: "#1B2430",
-                        color: "#F0EAD8",
-                        border: "1px solid rgba(240,234,216,0.2)",
-                        borderRadius: 6,
-                        padding: 6,
-                        marginBottom: 10,
-                        fontSize: TEXT_SIZES.body,
-                      }}
-                    >
-                      <option value="">Automatica (migliore disponibile)</option>
-                      {voiceOptions.map((v) => (
-                        <option key={v.voiceURI} value={v.voiceURI}>
-                          {v.name}
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                ) : (
-                  <div style={{ opacity: 0.6, marginBottom: 8 }}>
-                    Nessuna voce russa trovata sul dispositivo. Su Chrome o Edge di solito ce ne sono di più naturali
-                    che su altri browser.
-                  </div>
-                )}
-                <div style={{ opacity: 0.6, marginBottom: 4 }}>
-                  Velocità: {ttsSettings.rate.toFixed(2)}×
-                </div>
-                <input
-                  type="range"
-                  min="0.6"
-                  max="1.15"
-                  step="0.02"
-                  value={ttsSettings.rate}
-                  onChange={(e) => updateTtsSettings({ rate: parseFloat(e.target.value) })}
-                  style={{ width: "100%" }}
-                />
-                <button
-                  onClick={async () => {
-                    setTestLoading(true);
-                    setPremiumError(null);
-                    await playAudio(
-                      "Привет! Как поживаешь? Очень приятно с тобой познакомиться.",
-                      { ttsSettings, premium },
-                      (msg) => setPremiumError(msg)
-                    );
-                    setTestLoading(false);
-                  }}
-                  disabled={testLoading}
-                  style={{
-                    marginTop: 10,
-                    background: "#5B84B1",
-                    border: "none",
-                    borderRadius: 6,
-                    padding: "6px 12px",
-                    color: "#1B2430",
-                    fontWeight: 700,
-                    fontSize: TEXT_SIZES.body,
-                    cursor: "pointer",
-                    opacity: testLoading ? 0.6 : 1,
-                  }}
-                >
-                  {testLoading ? <>Genero l'audio…<LoadingDots /></> : "Prova la voce"}
-                </button>
-                <div style={{ opacity: 0.45, marginTop: 8, fontSize: TEXT_SIZES.body }}>
-                  La qualità dipende dalle voci installate sul tuo dispositivo/browser: non è un vero madrelingua. Su
-                  iOS, scaricare la voce russa "Enhanced/Premium" da Impostazioni → Accessibilità → Contenuto vocale
-                  migliora molto. Su Android/Chrome, le voci "Google" sono di solito le migliori.
-                </div>
-
-                <div style={{ borderTop: "1px solid rgba(240,234,216,0.15)", marginTop: 14, paddingTop: 12 }}>
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      cursor: subscription.active ? "pointer" : "default",
-                      opacity: subscription.active ? 1 : 0.55,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={premium.useNative}
-                      disabled={!subscription.active}
-                      onChange={(e) => updatePremium({ useNative: e.target.checked })}
-                    />
-                    <span style={{ fontSize: TEXT_SIZES.body, fontWeight: 700 }}>
-                      Voce madrelingua inclusa {subscription.active ? "" : "(richiede l'abbonamento)"}
-                    </span>
-                  </label>
-                  <div style={{ opacity: 0.6, marginTop: 4, marginBottom: 8 }}>
-                    Nessuna chiave da procurarsi: una vera voce madrelingua russa, inclusa nel tuo abbonamento.
-                  </div>
-                  {!subscription.active && (
-                    <button
-                      onClick={() => setView("paywall")}
-                      style={{
-                        background: "none",
-                        border: "1px solid #D9A441",
-                        color: "#D9A441",
-                        borderRadius: 8,
-                        padding: "8px 14px",
-                        fontSize: TEXT_SIZES.small,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        marginBottom: 10,
-                      }}
-                    >
-                      Sblocca con l'abbonamento
-                    </button>
-                  )}
-                  {subscription.active && premium.useNative && (
-                    <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
-                      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                        <input
-                          type="radio"
-                          name="native-voice-gender"
-                          checked={premium.voiceGender !== "male"}
-                          onChange={() => updatePremium({ voiceGender: "female" })}
-                        />
-                        <span style={{ fontSize: TEXT_SIZES.body }}>Voce femminile</span>
-                      </label>
-                      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                        <input
-                          type="radio"
-                          name="native-voice-gender"
-                          checked={premium.voiceGender === "male"}
-                          onChange={() => updatePremium({ voiceGender: "male" })}
-                        />
-                        <span style={{ fontSize: TEXT_SIZES.body }}>Voce maschile</span>
-                      </label>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ borderTop: "1px solid rgba(240,234,216,0.15)", marginTop: 14, paddingTop: 12 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={premium.enabled}
-                      onChange={(e) => updatePremium({ enabled: e.target.checked })}
-                    />
-                    <span style={{ fontSize: TEXT_SIZES.body, fontWeight: 700 }}>Voce premium (ElevenLabs) — davvero naturale</span>
-                  </label>
-                  <div style={{ opacity: 0.5, marginTop: 4, marginBottom: 8, fontSize: TEXT_SIZES.small }}>
-                    In alternativa: usa la tua chiave ElevenLabs se preferisci non abbonarti.
-                  </div>
-
-                  {premium.enabled && (
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ opacity: 0.6, marginBottom: 4 }}>Chiave API ElevenLabs</div>
-                      <input
-                        type="password"
-                        value={premium.apiKey}
-                        onChange={(e) => updatePremium({ apiKey: e.target.value })}
-                        placeholder="sk_..."
-                        style={{
-                          width: "100%",
-                          background: "#1B2430",
-                          color: "#F0EAD8",
-                          border: "1px solid rgba(240,234,216,0.2)",
-                          borderRadius: 6,
-                          padding: 6,
-                          marginBottom: 8,
-                          fontSize: TEXT_SIZES.body,
-                        }}
-                      />
-                      <div style={{ opacity: 0.6, marginBottom: 4 }}>Voce femminile — Voice ID</div>
-                      <input
-                        type="text"
-                        value={premium.voiceId}
-                        onChange={(e) => updatePremium({ voiceId: e.target.value })}
-                        placeholder={ELEVENLABS_DEFAULT_VOICE}
-                        style={{
-                          width: "100%",
-                          background: "#1B2430",
-                          color: "#F0EAD8",
-                          border: "1px solid rgba(240,234,216,0.2)",
-                          borderRadius: 6,
-                          padding: 6,
-                          marginBottom: 8,
-                          fontSize: TEXT_SIZES.body,
-                        }}
-                      />
-                      <div style={{ opacity: 0.6, marginBottom: 4 }}>Voce maschile — Voice ID (opzionale)</div>
-                      <input
-                        type="text"
-                        value={premium.voiceIdMale || ""}
-                        onChange={(e) => updatePremium({ voiceIdMale: e.target.value })}
-                        placeholder="incolla qui un Voice ID maschile"
-                        style={{
-                          width: "100%",
-                          background: "#1B2430",
-                          color: "#F0EAD8",
-                          border: "1px solid rgba(240,234,216,0.2)",
-                          borderRadius: 6,
-                          padding: 6,
-                          marginBottom: 8,
-                          fontSize: TEXT_SIZES.body,
-                        }}
-                      />
-                      {premiumError && (
-                        <div style={{ color: "#C1543C", fontSize: TEXT_SIZES.body, marginBottom: 8 }}>{premiumError}</div>
-                      )}
-                      <div style={{ opacity: 0.5, fontSize: TEXT_SIZES.body, lineHeight: 1.5 }}>
-                        Per voci russe madrelingua non robotiche: apri la <strong>Voice Library</strong> sul sito
-                        elevenlabs.io (non le voci di default, che sono soprattutto inglesi), filtra per lingua
-                        "Russian", ascolta i campioni e aggiungi alla tua libreria una voce femminile e una maschile
-                        che ti convincono. Poi copia il "Voice ID" di ciascuna (si trova nei tre puntini della voce,
-                        "Copy Voice ID") e incollalo qui sopra. Nei Dialoghi con "Ascolta tutto", le due voci si
-                        alterneranno automaticamente tra i due interlocutori.
-                        <br /><br />
-                        Richiede un account ElevenLabs (a pagamento oltre la soglia gratuita). La chiave resta salvata
-                        solo nel tuo browser e viene inviata direttamente a elevenlabs.io ad ogni riproduzione — non
-                        passa da Anthropic. Chiunque avesse accesso a questo browser potrebbe leggerla: non è uno
-                        storage pensato per segreti sensibili.
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ borderTop: "1px solid rgba(240,234,216,0.15)", marginTop: 14, paddingTop: 12 }}>
-                  {/* ATTENZIONE: sostituisci con un vero indirizzo email prima di pubblicare l'app —
-                      questo è un segnaposto, non un indirizzo reale che riceve posta. */}
-                  <a
-                    href="mailto:SOSTITUISCI-CON-EMAIL-VERA@tuodominio.it?subject=Segnalazione%20contenuto%20generato"
-                    style={{ fontSize: TEXT_SIZES.body, color: "#F0EAD8", opacity: 0.55, textDecoration: "underline" }}
-                  >
-                    🚩 Segnala un problema con un esercizio o pacchetto generato dall'IA
-                  </a>
-                </div>
-              </>
-            )}
-          </div>
-        )}
       </header>
 
       {!ready ? (
@@ -6287,6 +6031,259 @@ Struttura richiesta:
         <InsidieItalianiView ttsSettings={ttsSettings} premium={effectivePremium} onBack={() => setView("home")} />
       ) : view === "reggenza" ? (
         <ReggenzaCasiView ttsSettings={ttsSettings} premium={effectivePremium} onBack={() => setView("home")} customReggenza={customReggenza} genLoading={reggenzaGenLoading} genError={reggenzaGenError} onGenerate={generateReggenza} />
+      ) : view === "voce" ? (
+        <div className="flag-corner" style={{ maxWidth: 480, margin: "0 auto", padding: "4px 18px 60px", background: "rgba(0,31,91,0.82)", ...sectionWatermarkStyle, borderRadius: 18 }}>
+          <SectionBackButton onBack={() => setView("home")} />
+          <h2 className="display" style={{ fontSize: TEXT_SIZES.sectionTitle, marginBottom: 14 }}>
+            🔊 Impostazioni voce
+          </h2>
+            {!TTS_SUPPORTED ? (
+              <div style={{ opacity: 0.6 }}>Il tuo browser non supporta la sintesi vocale.</div>
+            ) : (
+              <>
+                {voiceOptions.length > 0 ? (
+                  <>
+                    <div style={{ opacity: 0.6, marginBottom: 4 }}>Voce russa</div>
+                    <select
+                      value={ttsSettings.voiceURI || ""}
+                      onChange={(e) => updateTtsSettings({ voiceURI: e.target.value || null })}
+                      style={{
+                        width: "100%",
+                        background: "#1B2430",
+                        color: "#F0EAD8",
+                        border: "1px solid rgba(240,234,216,0.2)",
+                        borderRadius: 6,
+                        padding: 6,
+                        marginBottom: 10,
+                        fontSize: TEXT_SIZES.body,
+                      }}
+                    >
+                      <option value="">Automatica (migliore disponibile)</option>
+                      {voiceOptions.map((v) => (
+                        <option key={v.voiceURI} value={v.voiceURI}>
+                          {v.name}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                ) : (
+                  <div style={{ opacity: 0.6, marginBottom: 8 }}>
+                    Nessuna voce russa trovata sul dispositivo. Su Chrome o Edge di solito ce ne sono di più naturali
+                    che su altri browser.
+                  </div>
+                )}
+                <div style={{ opacity: 0.6, marginBottom: 4 }}>
+                  Velocità: {ttsSettings.rate.toFixed(2)}×
+                </div>
+                <input
+                  type="range"
+                  min="0.6"
+                  max="1.15"
+                  step="0.02"
+                  value={ttsSettings.rate}
+                  onChange={(e) => updateTtsSettings({ rate: parseFloat(e.target.value) })}
+                  style={{ width: "100%" }}
+                />
+                <button
+                  onClick={async () => {
+                    setTestLoading(true);
+                    setPremiumError(null);
+                    await playAudio(
+                      "Привет! Как поживаешь? Очень приятно с тобой познакомиться.",
+                      { ttsSettings, premium },
+                      (msg) => setPremiumError(msg)
+                    );
+                    setTestLoading(false);
+                  }}
+                  disabled={testLoading}
+                  style={{
+                    marginTop: 10,
+                    background: "#5B84B1",
+                    border: "none",
+                    borderRadius: 6,
+                    padding: "6px 12px",
+                    color: "#1B2430",
+                    fontWeight: 700,
+                    fontSize: TEXT_SIZES.body,
+                    cursor: "pointer",
+                    opacity: testLoading ? 0.6 : 1,
+                  }}
+                >
+                  {testLoading ? <>Genero l'audio…<LoadingDots /></> : "Prova la voce"}
+                </button>
+                <div style={{ opacity: 0.45, marginTop: 8, fontSize: TEXT_SIZES.body }}>
+                  La qualità dipende dalle voci installate sul tuo dispositivo/browser: non è un vero madrelingua. Su
+                  iOS, scaricare la voce russa "Enhanced/Premium" da Impostazioni → Accessibilità → Contenuto vocale
+                  migliora molto. Su Android/Chrome, le voci "Google" sono di solito le migliori.
+                </div>
+
+                <div style={{ borderTop: "1px solid rgba(240,234,216,0.15)", marginTop: 14, paddingTop: 12 }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      cursor: subscription.active ? "pointer" : "default",
+                      opacity: subscription.active ? 1 : 0.55,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={premium.useNative}
+                      disabled={!subscription.active}
+                      onChange={(e) => updatePremium({ useNative: e.target.checked })}
+                    />
+                    <span style={{ fontSize: TEXT_SIZES.body, fontWeight: 700 }}>
+                      Voce madrelingua inclusa {subscription.active ? "" : "(richiede l'abbonamento)"}
+                    </span>
+                  </label>
+                  <div style={{ opacity: 0.6, marginTop: 4, marginBottom: 8 }}>
+                    Nessuna chiave da procurarsi: una vera voce madrelingua russa, inclusa nel tuo abbonamento.
+                  </div>
+                  {!subscription.active && (
+                    <button
+                      onClick={() => setView("paywall")}
+                      style={{
+                        background: "none",
+                        border: "1px solid #D9A441",
+                        color: "#D9A441",
+                        borderRadius: 8,
+                        padding: "8px 14px",
+                        fontSize: TEXT_SIZES.small,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        marginBottom: 10,
+                      }}
+                    >
+                      Sblocca con l'abbonamento
+                    </button>
+                  )}
+                  {subscription.active && premium.useNative && (
+                    <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="native-voice-gender"
+                          checked={premium.voiceGender !== "male"}
+                          onChange={() => updatePremium({ voiceGender: "female" })}
+                        />
+                        <span style={{ fontSize: TEXT_SIZES.body }}>Voce femminile</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="native-voice-gender"
+                          checked={premium.voiceGender === "male"}
+                          onChange={() => updatePremium({ voiceGender: "male" })}
+                        />
+                        <span style={{ fontSize: TEXT_SIZES.body }}>Voce maschile</span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ borderTop: "1px solid rgba(240,234,216,0.15)", marginTop: 14, paddingTop: 12 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={premium.enabled}
+                      onChange={(e) => updatePremium({ enabled: e.target.checked })}
+                    />
+                    <span style={{ fontSize: TEXT_SIZES.body, fontWeight: 700 }}>Voce premium (ElevenLabs) — davvero naturale</span>
+                  </label>
+                  <div style={{ opacity: 0.5, marginTop: 4, marginBottom: 8, fontSize: TEXT_SIZES.small }}>
+                    In alternativa: usa la tua chiave ElevenLabs se preferisci non abbonarti.
+                  </div>
+
+                  {premium.enabled && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ opacity: 0.6, marginBottom: 4 }}>Chiave API ElevenLabs</div>
+                      <input
+                        type="password"
+                        value={premium.apiKey}
+                        onChange={(e) => updatePremium({ apiKey: e.target.value })}
+                        placeholder="sk_..."
+                        style={{
+                          width: "100%",
+                          background: "#1B2430",
+                          color: "#F0EAD8",
+                          border: "1px solid rgba(240,234,216,0.2)",
+                          borderRadius: 6,
+                          padding: 6,
+                          marginBottom: 8,
+                          fontSize: TEXT_SIZES.body,
+                        }}
+                      />
+                      <div style={{ opacity: 0.6, marginBottom: 4 }}>Voce femminile — Voice ID</div>
+                      <input
+                        type="text"
+                        value={premium.voiceId}
+                        onChange={(e) => updatePremium({ voiceId: e.target.value })}
+                        placeholder={ELEVENLABS_DEFAULT_VOICE}
+                        style={{
+                          width: "100%",
+                          background: "#1B2430",
+                          color: "#F0EAD8",
+                          border: "1px solid rgba(240,234,216,0.2)",
+                          borderRadius: 6,
+                          padding: 6,
+                          marginBottom: 8,
+                          fontSize: TEXT_SIZES.body,
+                        }}
+                      />
+                      <div style={{ opacity: 0.6, marginBottom: 4 }}>Voce maschile — Voice ID (opzionale)</div>
+                      <input
+                        type="text"
+                        value={premium.voiceIdMale || ""}
+                        onChange={(e) => updatePremium({ voiceIdMale: e.target.value })}
+                        placeholder="incolla qui un Voice ID maschile"
+                        style={{
+                          width: "100%",
+                          background: "#1B2430",
+                          color: "#F0EAD8",
+                          border: "1px solid rgba(240,234,216,0.2)",
+                          borderRadius: 6,
+                          padding: 6,
+                          marginBottom: 8,
+                          fontSize: TEXT_SIZES.body,
+                        }}
+                      />
+                      {premiumError && (
+                        <div style={{ color: "#C1543C", fontSize: TEXT_SIZES.body, marginBottom: 8 }}>{premiumError}</div>
+                      )}
+                      <div style={{ opacity: 0.5, fontSize: TEXT_SIZES.body, lineHeight: 1.5 }}>
+                        Per voci russe madrelingua non robotiche: apri la <strong>Voice Library</strong> sul sito
+                        elevenlabs.io (non le voci di default, che sono soprattutto inglesi), filtra per lingua
+                        "Russian", ascolta i campioni e aggiungi alla tua libreria una voce femminile e una maschile
+                        che ti convincono. Poi copia il "Voice ID" di ciascuna (si trova nei tre puntini della voce,
+                        "Copy Voice ID") e incollalo qui sopra. Nei Dialoghi con "Ascolta tutto", le due voci si
+                        alterneranno automaticamente tra i due interlocutori.
+                        <br /><br />
+                        Richiede un account ElevenLabs (a pagamento oltre la soglia gratuita). La chiave resta salvata
+                        solo nel tuo browser, ma viene inviata al server dell'app ad ogni riproduzione — non
+                        direttamente a ElevenLabs, perché ElevenLabs stessa non permette di chiamare la sua API
+                        direttamente da un browser (blocca la richiesta per motivi di sicurezza propri, indipendenti
+                        da quest'app). Il server la inoltra subito a ElevenLabs e non la salva né la registra da
+                        nessuna parte. Chiunque avesse accesso a questo browser potrebbe comunque leggerla: non è uno
+                        storage pensato per segreti sensibili.
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ borderTop: "1px solid rgba(240,234,216,0.15)", marginTop: 14, paddingTop: 12 }}>
+                  {/* ATTENZIONE: sostituisci con un vero indirizzo email prima di pubblicare l'app —
+                      questo è un segnaposto, non un indirizzo reale che riceve posta. */}
+                  <a
+                    href="mailto:SOSTITUISCI-CON-EMAIL-VERA@tuodominio.it?subject=Segnalazione%20contenuto%20generato"
+                    style={{ fontSize: TEXT_SIZES.body, color: "#F0EAD8", opacity: 0.55, textDecoration: "underline" }}
+                  >
+                    🚩 Segnala un problema con un esercizio o pacchetto generato dall'IA
+                  </a>
+                </div>
+              </>
+            )}
+        </div>
       ) : view === "comparativi" ? (
         <ComparativiView ttsSettings={ttsSettings} premium={effectivePremium} onBack={() => setView("home")} customComparativi={customComparativi} genLoading={comparativiGenLoading} genError={comparativiGenError} onGenerate={generateComparativo} />
       ) : view === "participi" ? (
@@ -15772,14 +15769,14 @@ function ReggenzaCasiView({ ttsSettings, premium, onBack, customReggenza, genLoa
 // quello sintetico (un solo suffisso, es. -ее) e quello analitico (более/самый + aggettivo),
 // più alcuni aggettivi molto comuni che hanno forme irregolari da imparare a memoria.
 const COMPARATIVI_AGGETTIVI = [
-  { word: "краси́вый", meaning_it: "bello", comparative: "краси́вее", superlative: "са́мый краси́вый", irregular: false, example_ru: "Э́тот го́род краси́вее.", example_it: "Questa città è più bella." },
-  { word: "у́мный", meaning_it: "intelligente", comparative: "умне́е", superlative: "са́мый у́мный", irregular: false, example_ru: "Она́ умне́е меня́.", example_it: "Lei è più intelligente di me." },
-  { word: "бы́стрый", meaning_it: "veloce", comparative: "быстре́е", superlative: "са́мый бы́стрый", irregular: false, example_ru: "Э́тот по́езд быстре́е.", example_it: "Questo treno è più veloce." },
-  { word: "интере́сный", meaning_it: "interessante", comparative: "интере́снее", superlative: "са́мый интере́сный", irregular: false, example_ru: "Кни́га интере́снее фи́льма.", example_it: "Il libro è più interessante del film." },
-  { word: "хоро́ший", meaning_it: "buono", comparative: "лу́чше", superlative: "лу́чший", irregular: true, example_ru: "Э́тот вариа́нт лу́чше.", example_it: "Questa opzione è migliore.", note_it: "Forma irregolare, non segue il suffisso -ее — va imparata a parte, come il nostro \"buono → migliore\"." },
-  { word: "плохо́й", meaning_it: "cattivo", comparative: "ху́же", superlative: "ху́дший", irregular: true, example_ru: "Пого́да сего́дня ху́же.", example_it: "Il tempo oggi è peggiore.", note_it: "Irregolare, come \"cattivo → peggiore\" in italiano." },
-  { word: "большо́й", meaning_it: "grande", comparative: "бо́льше", superlative: "са́мый большо́й", irregular: true, example_ru: "Э́тот дом бо́льше.", example_it: "Questa casa è più grande.", note_it: "Irregolare — \"бо́льше\" è anche la parola per \"di più\" in generale." },
-  { word: "ма́ленький", meaning_it: "piccolo", comparative: "ме́ньше", superlative: "са́мый ма́ленький", irregular: true, example_ru: "Моя́ ко́мната ме́ньше.", example_it: "La mia stanza è più piccola.", note_it: "Irregolare, come большо́й." },
+  { word: "краси́вый", meaning_it: "bello", comparative: "краси́вее", superlative: "са́мый краси́вый", irregular: false, example_ru: "Э́тот го́род краси́вее.", example_it: "Questa città è più bella.", example_superlative_ru: "Э́то са́мый краси́вый го́род в Росси́и.", example_superlative_it: "Questa è la città più bella della Russia." },
+  { word: "у́мный", meaning_it: "intelligente", comparative: "умне́е", superlative: "са́мый у́мный", irregular: false, example_ru: "Она́ умне́е меня́.", example_it: "Lei è più intelligente di me.", example_superlative_ru: "Он са́мый у́мный студе́нт в кла́ссе.", example_superlative_it: "Lui è lo studente più intelligente della classe." },
+  { word: "бы́стрый", meaning_it: "veloce", comparative: "быстре́е", superlative: "са́мый бы́стрый", irregular: false, example_ru: "Э́тот по́езд быстре́е.", example_it: "Questo treno è più veloce.", example_superlative_ru: "Э́то са́мый бы́стрый по́езд в стране́.", example_superlative_it: "Questo è il treno più veloce del paese." },
+  { word: "интере́сный", meaning_it: "interessante", comparative: "интере́снее", superlative: "са́мый интере́сный", irregular: false, example_ru: "Кни́га интере́снее фи́льма.", example_it: "Il libro è più interessante del film.", example_superlative_ru: "Э́то са́мый интере́сный фи́льм го́да.", example_superlative_it: "Questo è il film più interessante dell'anno." },
+  { word: "хоро́ший", meaning_it: "buono", comparative: "лу́чше", superlative: "лу́чший", irregular: true, example_ru: "Э́тот вариа́нт лу́чше.", example_it: "Questa opzione è migliore.", note_it: "Forma irregolare, non segue il suffisso -ее — va imparata a parte, come il nostro \"buono → migliore\".", example_superlative_ru: "Э́то лу́чший рестора́н в го́роде.", example_superlative_it: "Questo è il miglior ristorante della città." },
+  { word: "плохо́й", meaning_it: "cattivo", comparative: "ху́же", superlative: "ху́дший", irregular: true, example_ru: "Пого́да сего́дня ху́же.", example_it: "Il tempo oggi è peggiore.", note_it: "Irregolare, come \"cattivo → peggiore\" in italiano.", example_superlative_ru: "Э́то ху́дший день в мое́й жи́зни.", example_superlative_it: "Questo è il peggior giorno della mia vita." },
+  { word: "большо́й", meaning_it: "grande", comparative: "бо́льше", superlative: "са́мый большо́й", irregular: true, example_ru: "Э́тот дом бо́льше.", example_it: "Questa casa è più grande.", note_it: "Irregolare — \"бо́льше\" è anche la parola per \"di più\" in generale.", example_superlative_ru: "Э́то са́мый большо́й магази́н в го́роде.", example_superlative_it: "Questo è il negozio più grande della città." },
+  { word: "ма́ленький", meaning_it: "piccolo", comparative: "ме́ньше", superlative: "са́мый ма́ленький", irregular: true, example_ru: "Моя́ ко́мната ме́ньше.", example_it: "La mia stanza è più piccola.", note_it: "Irregolare, come большо́й.", example_superlative_ru: "Э́то са́мый ма́ленький го́род в стране́.", example_superlative_it: "Questa è la città più piccola del paese." },
 ];
 
 function ComparativiView({ ttsSettings, premium, onBack, customComparativi, genLoading, genError, onGenerate }) {
@@ -15812,7 +15809,17 @@ function ComparativiView({ ttsSettings, premium, onBack, customComparativi, genL
 
       <div style={{ background: "#232E3D", border: `1px solid ${current.irregular ? "#C1543C55" : "rgba(240,234,216,0.12)"}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
-          <span className="mono" style={{ fontSize: TEXT_SIZES.subtitle, color: "#D9A441", fontWeight: 700 }}>{current.word}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span className="mono" style={{ fontSize: TEXT_SIZES.subtitle, color: "#D9A441", fontWeight: 700 }}>{current.word}</span>
+            <button
+              onClick={() => play("word", current.word)}
+              disabled={audioLoading.word || (!TTS_SUPPORTED && !premium?.enabled)}
+              aria-label="Ascolta la parola" title="Ascolta la parola"
+              style={{ ...iconBtnStyle, width: 22, height: 22, flexShrink: 0 }}
+            >
+              <Volume2 size={11} />
+            </button>
+          </div>
           <span style={{ fontSize: TEXT_SIZES.body, opacity: 0.6 }}>{current.meaning_it}</span>
         </div>
         <PronunciationHint text={current.word} style={{ textAlign: "right", marginBottom: 10 }} />
@@ -15837,6 +15844,7 @@ function ComparativiView({ ttsSettings, premium, onBack, customComparativi, genL
           </div>
         )}
 
+        <div style={{ fontSize: TEXT_SIZES.small, opacity: 0.5, marginBottom: 4 }}>Esempio — comparativo</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ fontSize: TEXT_SIZES.bodyLarge, flex: 1 }}>{current.example_ru}</div>
           <button
@@ -15851,6 +15859,26 @@ function ComparativiView({ ttsSettings, premium, onBack, customComparativi, genL
         <PronunciationHint text={current.example_ru} />
         <div style={{ fontSize: TEXT_SIZES.body, opacity: 0.6, fontStyle: "italic", marginTop: 4 }}>{current.example_it}</div>
         {audioError.comp && <div style={{ fontSize: TEXT_SIZES.small, color: "#C1543C", marginTop: 4 }}>{audioError.comp}</div>}
+
+        {current.example_superlative_ru && (
+          <>
+            <div style={{ fontSize: TEXT_SIZES.small, opacity: 0.5, marginTop: 12, marginBottom: 4 }}>Esempio — superlativo</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: TEXT_SIZES.bodyLarge, flex: 1 }}>{current.example_superlative_ru}</div>
+              <button
+                onClick={() => play("superl", current.example_superlative_ru)}
+                disabled={audioLoading.superl || (!TTS_SUPPORTED && !premium?.enabled)}
+                aria-label="Ascolta" title="Ascolta"
+                style={{ ...iconBtnStyle, width: 26, height: 26, flexShrink: 0 }}
+              >
+                <Volume2 size={12} />
+              </button>
+            </div>
+            <PronunciationHint text={current.example_superlative_ru} />
+            <div style={{ fontSize: TEXT_SIZES.body, opacity: 0.6, fontStyle: "italic", marginTop: 4 }}>{current.example_superlative_it}</div>
+            {audioError.superl && <div style={{ fontSize: TEXT_SIZES.small, color: "#C1543C", marginTop: 4 }}>{audioError.superl}</div>}
+          </>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
