@@ -3651,6 +3651,29 @@ Struttura richiesta:
     }
   }
 
+  // Genera una frase COMPLETA (non solo l'inizio, a differenza di
+  // requestProductionHint sopra) per l'auto-completamento di "Completa lezione" —
+  // usata solo se l'utente non ha scritto nulla di suo. Restituisce true/false
+  // (non lancia mai eccezioni) così il chiamante sa se procedere o mostrare un
+  // errore, dato che qui manca l'aiuto visivo dedicato che ha requestProductionHint.
+  async function requestProductionAutoComplete(lesson) {
+    try {
+      const prompt = `Sei un'insegnante di russo madrelingua per studenti italiani. Per questa consegna di produzione libera: "${lesson.production}" (vocabolario della lezione: ${lesson.vocab.map((v) => v.ru).join(", ")}), scrivi UNA frase completa in russo, semplice e naturale, che risponda correttamente alla consegna usando il vocabolario della lezione.
+
+${JSON_FORMAT_INSTRUCTIONS}
+
+Struttura richiesta:
+{"sentence_ru":"la frase completa in russo, con punteggiatura finale"}`;
+
+      const parsed = await callClaudeJSON(prompt);
+      if (!parsed.sentence_ru) throw new Error("Struttura incompleta.");
+      setAnswer(parsed.sentence_ru);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   const masteredCount = Object.values(vocabBox).filter((b) => b >= 5).length;
   const anySectionActive = view !== "home" || showTextSizePanel || showDevPanel;
   function navBtnStyle(borderColor, isActive) {
@@ -6495,6 +6518,7 @@ Struttura richiesta:
           productionHintLoading={productionHintLoading}
           productionHintError={productionHintError}
           onRequestProductionHint={() => requestProductionHint(activeLesson)}
+          onRequestProductionAutoComplete={() => requestProductionAutoComplete(activeLesson)}
           onSaveProgress={() => completeLesson(activeLesson.id)}
           onComplete={() => {
             completeLesson(activeLesson.id);
@@ -6946,6 +6970,7 @@ function HomeView({
 }) {
   const [showTopicPicker, setShowTopicPicker] = useState(false);
   const [showToComplete, setShowToComplete] = useState(false);
+  const [showCompletedLessons, setShowCompletedLessons] = useState(false);
 
   function pickTopic(topic) {
     setShowTopicPicker(false);
@@ -7109,6 +7134,108 @@ function HomeView({
             </div>
             <button
               onClick={(e) => { e.stopPropagation(); setShowToComplete(false); }}
+              style={{
+                marginTop: 20,
+                background: "none",
+                border: "1px solid rgba(240,234,216,0.4)",
+                borderRadius: 10,
+                padding: "10px 24px",
+                color: "#F0EAD8",
+                fontSize: TEXT_SIZES.bodyLarge,
+                cursor: "pointer",
+              }}
+            >
+              Chiudi
+            </button>
+          </div>
+        );
+      })()}
+
+      {activeSector === "lezioni" && completed.length > 0 && (
+        <button
+          onClick={() => setShowCompletedLessons(true)}
+          className="btn-3d"
+          style={{
+            display: "block",
+            width: "100%",
+            maxWidth: 460,
+            margin: "0 auto 14px",
+            background: "rgba(124,140,107,0.1)",
+            border: "1px solid rgba(124,140,107,0.35)",
+            borderRadius: 14,
+            padding: "10px 16px",
+            color: "#7C8C6B",
+            textAlign: "center",
+            fontWeight: 700,
+            fontSize: TEXT_SIZES.body,
+            cursor: "pointer",
+          }}
+        >
+          ✅ Lezioni completate ({completed.length})
+        </button>
+      )}
+
+      {showCompletedLessons && (() => {
+        const completedLessons = completed
+          .map((id) => {
+            const levelId = (id.split("-")[0] || "").toUpperCase();
+            return allLessonsFor(levelId).find((l) => l.id === id);
+          })
+          .filter(Boolean);
+        return (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 130,
+              backgroundColor: "rgba(6,21,48,0.95)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              padding: "60px 20px 20px",
+              overflowY: "auto",
+            }}
+            onClick={() => setShowCompletedLessons(false)}
+          >
+            <h2 className="display" style={{ fontSize: TEXT_SIZES.sectionTitle, color: "#7C8C6B", marginBottom: 16 }}>
+              ✅ Lezioni completate
+            </h2>
+            <div style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", gap: 10 }}>
+              {completedLessons.length === 0 ? (
+                <div style={{ color: "#F0EAD8", opacity: 0.6, textAlign: "center" }}>
+                  Nessuna lezione completata ancora.
+                </div>
+              ) : (
+                completedLessons.map((l) => (
+                  <button
+                    key={l.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowCompletedLessons(false);
+                      playNavigationSound();
+                      onOpenLesson(l);
+                    }}
+                    className="btn-3d"
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      background: "#232E3D",
+                      border: "1px solid rgba(240,234,216,0.15)",
+                      borderRadius: 12,
+                      padding: "12px 16px",
+                      color: "#F0EAD8",
+                      textAlign: "left",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: TEXT_SIZES.bodyLarge }}>{l.title}</div>
+                    <div style={{ fontSize: TEXT_SIZES.small, opacity: 0.6, marginTop: 2 }}>{l.subtitle} →</div>
+                  </button>
+                ))
+              )}
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowCompletedLessons(false); }}
               style={{
                 marginTop: 20,
                 background: "none",
@@ -17126,6 +17253,7 @@ function LessonView({
   productionHintLoading,
   productionHintError,
   onRequestProductionHint,
+  onRequestProductionAutoComplete,
   onComplete,
   onSaveProgress,
   onBack,
@@ -17145,6 +17273,9 @@ function LessonView({
   const [autoFilledBuilder, setAutoFilledBuilder] = useState(false);
   const [autoFilledDrills, setAutoFilledDrills] = useState({});
   const [autoFilledGrammar, setAutoFilledGrammar] = useState(false);
+  const [autoFilledHowToSay, setAutoFilledHowToSay] = useState({});
+  const [autoFilledProduction, setAutoFilledProduction] = useState(false);
+  const [completingLesson, setCompletingLesson] = useState(false);
   const [pendingExit, setPendingExit] = useState(false);
   const [storyPlayerState, setStoryPlayerState] = useState("stopped"); // "stopped" | "playing" | "paused"
   const [currentStoryLine, setCurrentStoryLine] = useState(0);
@@ -17986,8 +18117,10 @@ Struttura richiesta:
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {q.options.map((opt, oi) => {
                       const isCorrect = opt.ru === q.target.ru;
+                      const isAutoFilled = autoFilledHowToSay[qi] && isCorrect;
                       let bg = "#1B2430";
-                      if (revealed && isCorrect) bg = "rgba(124,140,107,0.35)";
+                      if (revealed && isAutoFilled) bg = "rgba(217,164,65,0.3)";
+                      else if (revealed && isCorrect) bg = "rgba(124,140,107,0.35)";
                       else if (revealed && picked === oi && !isCorrect) bg = "rgba(193,84,60,0.35)";
                       const audioKey = `howToSay${qi}-${oi}`;
                       return (
@@ -18007,12 +18140,13 @@ Struttura richiesta:
                               border: "1px solid rgba(240,234,216,0.12)",
                               borderRadius: 8,
                               padding: "8px 10px",
-                              color: "#F0EAD8",
+                              color: isAutoFilled ? "#D9A441" : "#F0EAD8",
                               fontSize: TEXT_SIZES.bodyLarge,
                               cursor: revealed ? "default" : "pointer",
                             }}
                           >
                             {opt.ru}
+                            {isAutoFilled && <span style={{ fontSize: TEXT_SIZES.small, opacity: 0.7 }}> auto</span>}
                           </button>
                           <button
                             onClick={async (e) => {
@@ -18773,18 +18907,21 @@ Struttura richiesta:
             ⚠️ {productionHintError}
           </div>
         )}
+        {autoFilledProduction && (
+          <div style={{ fontSize: TEXT_SIZES.small, color: "#D9A441", marginBottom: 4 }}>completato automaticamente</div>
+        )}
         <textarea
           value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
+          onChange={(e) => { setAnswer(e.target.value); setAutoFilledProduction(false); }}
           placeholder="Scrivi in russo…"
           rows={3}
           style={{
             width: "100%",
             background: "#232E3D",
-            border: "1px solid rgba(240,234,216,0.2)",
+            border: `1px solid ${autoFilledProduction ? "#D9A441" : "rgba(240,234,216,0.2)"}`,
             borderRadius: 10,
             padding: 12,
-            color: "#F0EAD8",
+            color: autoFilledProduction ? "#D9A441" : "#F0EAD8",
             fontSize: TEXT_SIZES.subtitle,
             resize: "vertical",
           }}
@@ -18863,7 +19000,7 @@ Struttura richiesta:
           Esci senza completare
         </button>
         <button
-          onClick={() => {
+          onClick={async () => {
             if (!pendingExit) {
               // Il progresso va salvato SUBITO qui, non solo al secondo click
               // ("Esci") — se l'utente esce in un altro modo dopo questo primo
@@ -18920,6 +19057,25 @@ Struttura richiesta:
                 setGrammarPicked((p) => ({ ...p, 0: lesson.grammar.exercise.correct }));
                 setAutoFilledGrammar(true);
               }
+              if (howToSayQuestions.length > 0) {
+                setHowToSayPicked((p) => {
+                  const next = { ...p };
+                  howToSayQuestions.forEach((q, qi) => {
+                    if (next[qi] === undefined) {
+                      const correctIdx = q.options.findIndex((o) => o.ru === q.target.ru);
+                      next[qi] = correctIdx;
+                    }
+                  });
+                  return next;
+                });
+                setAutoFilledHowToSay((af) => {
+                  const next = { ...af };
+                  howToSayQuestions.forEach((q, qi) => {
+                    if (howToSayPicked[qi] === undefined) next[qi] = true;
+                  });
+                  return next;
+                });
+              }
               if (lesson.story.length > 0) {
                 setShowGloss((g) => {
                   const next = { ...g };
@@ -18929,12 +19085,26 @@ Struttura richiesta:
                   return next;
                 });
               }
+              if (!answer.trim()) {
+                // A differenza di tutti gli esercizi sopra, qui non esiste una
+                // risposta corretta già pronta nei dati — va generata al momento,
+                // quindi richiede attendere una vera risposta IA prima di
+                // procedere (da qui il pulsante mostra un caricamento apposta).
+                setCompletingLesson(true);
+                const ok = await onRequestProductionAutoComplete();
+                setCompletingLesson(false);
+                if (ok) setAutoFilledProduction(true);
+                // Se la generazione fallisce (rete assente, ecc.), si prosegue
+                // comunque: il campo resta vuoto, esattamente come sarebbe stato
+                // senza questo passaggio — non blocca l'uscita dalla lezione.
+              }
               playNavigationSound();
               setPendingExit(true);
             } else {
               onComplete();
             }
           }}
+          disabled={completingLesson}
           style={{
             flex: 2,
             background: "#D9A441",
@@ -18944,13 +19114,13 @@ Struttura richiesta:
             color: "#1B2430",
             fontWeight: 700,
             fontSize: TEXT_SIZES.emphasisLarge,
-            cursor: "pointer",
+            cursor: completingLesson ? "default" : "pointer",
           }}
         >
-          {pendingExit ? "Esci" : "Completa lezione"}
+          {completingLesson ? <>Completo…<LoadingDots /></> : pendingExit ? "Esci" : "Completa lezione"}
         </button>
       </div>
-      {pendingExit && (autoFilledQuiz || autoFilledBuilder || Object.keys(autoFilledDrills).length > 0 || autoFilledGrammar) && (
+      {pendingExit && (autoFilledQuiz || autoFilledBuilder || Object.keys(autoFilledDrills).length > 0 || autoFilledGrammar || Object.keys(autoFilledHowToSay).length > 0 || autoFilledProduction) && (
         <div style={{ fontSize: TEXT_SIZES.body, opacity: 0.6, marginTop: 10, textAlign: "center" }}>
           Ho completato io le parti che non avevi ancora risposto (in <span style={{ color: "#D9A441" }}>arancione</span>) — le tue risposte restano come le hai date.
         </div>
