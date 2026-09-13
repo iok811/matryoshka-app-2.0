@@ -422,6 +422,24 @@ function todayStr() {
 // ---------- Audio helpers ----------
 
 const TTS_SUPPORTED = typeof window !== "undefined" && !!window.speechSynthesis;
+
+// iOS Safari richiede che speechSynthesis.speak() venga chiamato SINCRONAMENTE
+// dentro il gestore dell'evento di tap/click, altrimenti lo scarta in silenzio
+// (nessun errore, nessun suono) — è documentato come "rottura della catena del
+// gesto utente". Se la funzione speak() qui sotto dovesse fare "await
+// getVoicesAsync()" PRIMA di chiamare window.speechSynthesis.speak(), quell'await
+// romperebbe la catena su iPhone: l'audio della lezione funzionava sul Mac (dove
+// questa restrizione non esiste) ma restava muto su iPhone e, in misura minore,
+// su alcuni Android. Per questo le voci vengono pre-caricate qui, il prima
+// possibile (al caricamento dello script, non al primo click), così al momento
+// del tap le voci sono già pronte e non serve nessun await prima di "speak()".
+let cachedVoices = [];
+if (TTS_SUPPORTED) {
+  cachedVoices = window.speechSynthesis.getVoices();
+  window.speechSynthesis.addEventListener("voiceschanged", () => {
+    cachedVoices = window.speechSynthesis.getVoices();
+  });
+}
 const SPEECH_RECOGNITION_SUPPORTED =
   typeof window !== "undefined" && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
@@ -478,7 +496,13 @@ async function speak(text, opts = {}) {
   utter.lang = "ru-RU";
   utter.rate = opts.rate || 0.92;
   utter.pitch = 1;
-  const voices = await getVoicesAsync();
+  // Usa la cache sincrona quando già pronta (il caso normale, dato che le voci
+  // vengono pre-caricate al livello del modulo) — solo se ancora vuota (avvio
+  // freddissimo, prima che il browser le abbia mai fornite) si ricade
+  // sull'attesa asincrona: meglio funzionante-ma-più-lento che muto del tutto,
+  // ma va evitato ogni volta che è possibile per non rompere la catena del
+  // gesto utente richiesta da iOS Safari.
+  const voices = cachedVoices.length ? cachedVoices : await getVoicesAsync();
   let voice = null;
   if (opts.voiceURI) voice = voices.find((v) => v.voiceURI === opts.voiceURI);
   if (!voice) voice = pickBestVoice(voices);
