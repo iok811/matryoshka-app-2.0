@@ -1817,7 +1817,7 @@ export default function App() {
   const [productionHintLoading, setProductionHintLoading] = useState(false);
   const [productionHintError, setProductionHintError] = useState(null);
 
-  const [progress, setProgress] = useState({ completed: [], streak: 0, lastActive: null });
+  const [progress, setProgress] = useState({ completed: [], started: [], streak: 0, lastActive: null });
   const [showFreezeNotice, setShowFreezeNotice] = useState(false);
   const freezeNoticeShownRef = useRef(false);
 
@@ -3281,7 +3281,12 @@ Fornisci ESATTAMENTE 9 elementi nell'array "items", in quest'ordine preciso: le 
 
   useEffect(() => {
     (async () => {
-      const p = await loadJSON("progress", { completed: [], streak: 0, lastActive: null });
+      const p = await loadJSON("progress", { completed: [], started: [], streak: 0, lastActive: null });
+      // Compatibilità con dati salvati prima dell'introduzione del campo "started"
+      // (lezioni aperte ma non completate) — senza questo, un utente che aggiorna
+      // l'app da una versione precedente avrebbe "progress.started" undefined
+      // ovunque, invece di un array vuoto.
+      if (!Array.isArray(p.started)) p.started = [];
       const v = await loadJSON("vocab-box", {});
       const eh = await loadJSON("easy-hard-counts", { easy: 0, hard: 0 });
       // Nell'anteprima artifact di Claude.ai (IS_ARTIFACT_ENV) la pagina di benvenuto
@@ -3414,7 +3419,7 @@ Fornisci ESATTAMENTE 9 elementi nell'array "items", in quest'ordine preciso: le 
     (lessonId) => {
       setProgress((prev) => {
         if (prev.completed.includes(lessonId)) return prev;
-        const next = { ...prev, completed: [...prev.completed, lessonId] };
+        const next = { ...prev, completed: [...prev.completed, lessonId], started: prev.started.filter((id) => id !== lessonId) };
         saveJSON("progress", next);
         // Suono "apertura matrioska" SOLO al vero traguardo (ultima lezione del
         // livello), non ad ogni singola lezione — altrimenti perderebbe di
@@ -6490,6 +6495,7 @@ Struttura richiesta:
           productionHintLoading={productionHintLoading}
           productionHintError={productionHintError}
           onRequestProductionHint={() => requestProductionHint(activeLesson)}
+          onSaveProgress={() => completeLesson(activeLesson.id)}
           onComplete={() => {
             completeLesson(activeLesson.id);
             setActiveLesson(null);
@@ -6523,7 +6529,16 @@ Struttura richiesta:
           openLevel={openLevel}
           setOpenLevel={setOpenLevel}
           completed={progress.completed}
-          onOpenLesson={(l) => setActiveLesson(l)}
+          started={progress.started}
+          onOpenLesson={(l) => {
+            setActiveLesson(l);
+            setProgress((prev) => {
+              if (prev.completed.includes(l.id) || prev.started.includes(l.id)) return prev;
+              const next = { ...prev, started: [...prev.started, l.id] };
+              saveJSON("progress", next);
+              return next;
+            });
+          }}
           allLessonsFor={allLessonsFor}
           genLoading={genLoading}
           genError={genError}
@@ -6916,6 +6931,7 @@ function HomeView({
   openLevel,
   setOpenLevel,
   completed,
+  started,
   onOpenLesson,
   allLessonsFor,
   genLoading,
@@ -6929,6 +6945,7 @@ function HomeView({
   onGoToPaywall,
 }) {
   const [showTopicPicker, setShowTopicPicker] = useState(false);
+  const [showToComplete, setShowToComplete] = useState(false);
 
   function pickTopic(topic) {
     setShowTopicPicker(false);
@@ -6993,6 +7010,119 @@ function HomeView({
             </div>
             <div style={{ fontSize: TEXT_SIZES.small, opacity: 0.6, marginTop: 2 }}>{nextLesson.subtitle} →</div>
           </button>
+        );
+      })()}
+
+      {activeSector === "lezioni" && (() => {
+        const toComplete = (started || [])
+          .filter((id) => !completed.includes(id))
+          .map((id) => {
+            const levelId = (id.split("-")[0] || "").toUpperCase();
+            return allLessonsFor(levelId).find((l) => l.id === id);
+          })
+          .filter(Boolean);
+        if (toComplete.length === 0) return null;
+        return (
+          <button
+            onClick={() => setShowToComplete(true)}
+            className="btn-3d"
+            style={{
+              display: "block",
+              width: "100%",
+              maxWidth: 460,
+              margin: "0 auto 14px",
+              background: "rgba(217,164,65,0.1)",
+              border: "1px solid rgba(217,164,65,0.35)",
+              borderRadius: 14,
+              padding: "10px 16px",
+              color: "#D9A441",
+              textAlign: "center",
+              fontWeight: 700,
+              fontSize: TEXT_SIZES.body,
+              cursor: "pointer",
+            }}
+          >
+            📑 Lezioni da completare ({toComplete.length})
+          </button>
+        );
+      })()}
+
+      {showToComplete && (() => {
+        const toComplete = (started || [])
+          .filter((id) => !completed.includes(id))
+          .map((id) => {
+            const levelId = (id.split("-")[0] || "").toUpperCase();
+            return allLessonsFor(levelId).find((l) => l.id === id);
+          })
+          .filter(Boolean);
+        return (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 130,
+              backgroundColor: "rgba(6,21,48,0.95)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              padding: "60px 20px 20px",
+              overflowY: "auto",
+            }}
+            onClick={() => setShowToComplete(false)}
+          >
+            <h2 className="display" style={{ fontSize: TEXT_SIZES.sectionTitle, color: "#D9A441", marginBottom: 16 }}>
+              📑 Lezioni da completare
+            </h2>
+            <div style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", gap: 10 }}>
+              {toComplete.length === 0 ? (
+                <div style={{ color: "#F0EAD8", opacity: 0.6, textAlign: "center" }}>
+                  Nessuna lezione in sospeso — tutte quelle iniziate sono già completate.
+                </div>
+              ) : (
+                toComplete.map((l) => (
+                  <button
+                    key={l.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowToComplete(false);
+                      playNavigationSound();
+                      onOpenLesson(l);
+                    }}
+                    className="btn-3d"
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      background: "#232E3D",
+                      border: "1px solid rgba(240,234,216,0.15)",
+                      borderRadius: 12,
+                      padding: "12px 16px",
+                      color: "#F0EAD8",
+                      textAlign: "left",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: TEXT_SIZES.bodyLarge }}>{l.title}</div>
+                    <div style={{ fontSize: TEXT_SIZES.small, opacity: 0.6, marginTop: 2 }}>{l.subtitle} →</div>
+                  </button>
+                ))
+              )}
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowToComplete(false); }}
+              style={{
+                marginTop: 20,
+                background: "none",
+                border: "1px solid rgba(240,234,216,0.4)",
+                borderRadius: 10,
+                padding: "10px 24px",
+                color: "#F0EAD8",
+                fontSize: TEXT_SIZES.bodyLarge,
+                cursor: "pointer",
+              }}
+            >
+              Chiudi
+            </button>
+          </div>
         );
       })()}
 
@@ -16997,6 +17127,7 @@ function LessonView({
   productionHintError,
   onRequestProductionHint,
   onComplete,
+  onSaveProgress,
   onBack,
 }) {
   const [speedMult, setSpeedMult] = useState(1);
@@ -18734,6 +18865,12 @@ Struttura richiesta:
         <button
           onClick={() => {
             if (!pendingExit) {
+              // Il progresso va salvato SUBITO qui, non solo al secondo click
+              // ("Esci") — se l'utente esce in un altro modo dopo questo primo
+              // click (es. "← Indietro"), il salvataggio non deve dipendere da
+              // quel secondo passaggio: era esattamente il bug segnalato
+              // dall'utente ("i progressi non vengono ancora salvati").
+              onSaveProgress();
               // Primo click: completa SOLO ciò che l'utente non ha ancora risposto —
               // una risposta già data dall'utente (giusta o sbagliata) non viene mai
               // sovrascritta, così il colore "automatico" appare solo dove serve
