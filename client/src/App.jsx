@@ -678,6 +678,21 @@ async function restorePurchases() {
 
 const ELEVENLABS_DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAM"; // "Rachel", multilingual, supports Russian
 
+// Un solo elemento <audio> condiviso, riusato per ogni riproduzione (voce
+// madrelingua e voce premium), invece di crearne uno nuovo ogni volta. Motivo:
+// Safari/iOS "sblocca" un elemento <audio> specifico quando parte da un vero
+// gesto dell'utente (un tocco), e da quel momento QUELLO STESSO elemento resta
+// riproducibile anche più avanti, senza un nuovo gesto — ma un elemento <audio>
+// creato da zero in un secondo momento (es. per la seconda riga di un dialogo,
+// dentro un ciclo con setTimeout fra una riga e l'altra) non è mai stato
+// sbloccato, e play() viene rifiutato. Era esattamente il sintomo segnalato: la
+// prima frase di un "Ascolta tutto" funzionava, le successive no.
+let sharedTtsAudioElement = null;
+function getSharedTtsAudioElement() {
+  if (!sharedTtsAudioElement) sharedTtsAudioElement = new Audio();
+  return sharedTtsAudioElement;
+}
+
 async function speakPremium(text, apiKey, voiceId) {
   // ElevenLabs non permette chiamate dirette dal browser: verificato con la console
   // sviluppatore che restituisce "blocked by CORS policy — no
@@ -709,7 +724,9 @@ async function speakPremium(text, apiKey, voiceId) {
   }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
+  const audio = getSharedTtsAudioElement();
+  audio.src = url;
+  audio.load();
   // "audio.play()" si risolve non appena la riproduzione INIZIA, non quando finisce:
   // bisogna aspettare esplicitamente l'evento "ended" per sapere quando l'audio è davvero terminato.
   await new Promise((resolve, reject) => {
@@ -753,7 +770,9 @@ async function speakNativeVoice(text, gender) {
   }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
+  const audio = getSharedTtsAudioElement();
+  audio.src = url;
+  audio.load();
   await new Promise((resolve, reject) => {
     let settled = false;
     const finish = () => {
